@@ -1,0 +1,17 @@
+{
+  "name": "energy_trading",
+  "version": "1.0.0",
+  "description": "development of an energy trading system",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "ChristopherSiems",
+  "license": "ISC",
+  "devDependencies": {
+    "@chainlink/contracts": "^1.4.0",
+    "@nomicfoundation/hardhat-toolbox": "^6.1.0",
+    "hardhat": "^2.26.1",
+    "prettier-plugin-solidity": "^2.1.0"
+  }
+}
