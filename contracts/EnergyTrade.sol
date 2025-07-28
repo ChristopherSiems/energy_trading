@@ -143,10 +143,9 @@ contract EnergyTrade {
 
     uint256 prevBucketID = currBucketID;
     uint256 currAskIndex = 0;
-    uint256 asksUsed;
+    uint256 askOffset;
     uint256 asksEmptied;
     uint256 currProvision;
-    uint256 currUnitPrice = 0;
     uint256 currClearingPrice = 0;
     uint256 tradeCount = 0;
     SellerHook[] memory currSellersTruncated;
@@ -159,6 +158,7 @@ contract EnergyTrade {
 
     Offer[] memory bidsMemory = new Offer[](bidBuckets[prevBucketID].length);
     Offer[] memory asksMemory = new Offer[](askBuckets[prevBucketID].length);
+    uint256[] memory askAmountsFallback = new uint256[](asksMemory.length);
     SellerHook[] memory currSellers = new SellerHook[](asksMemory.length);
     Trade[] memory tradesConfirmed = new Trade[](bidsMemory.length);
 
@@ -178,60 +178,69 @@ contract EnergyTrade {
       Ordering.DESCENDING
     );
 
-    for (uint256 i = 0; i < bidsSorted.length; i++) {
+    for (uint256 bidIndex = 0; bidIndex < bidsSorted.length; bidIndex++) {
       if (
         currAskIndex >= asksSorted.length ||
-        bidsSorted[i].unitPrice < asksSorted[currAskIndex].unitPrice
+        bidsSorted[bidIndex].unitPrice < asksSorted[currAskIndex].unitPrice
       ) break;
 
-      currProvision = 0;
-      asksUsed = 0;
+      askOffset = 0;
       asksEmptied = 0;
-      for (uint256 j = 0; currAskIndex + j < asksSorted.length; j++) {
-        currUnitPrice = asksSorted[currAskIndex + j].unitPrice;
+      while (currAskIndex + askOffset < asksSorted.length) {
+        askAmountsFallback[askOffset] = asksSorted[currAskIndex + askOffset]
+          .energyAmount;
         if (
-          bidsSorted[i].energyAmount < asksSorted[currAskIndex + j].energyAmount
+          bidsSorted[bidIndex].energyAmount <
+          asksSorted[currAskIndex + askOffset].energyAmount
         ) {
-          currProvision = bidsSorted[i].energyAmount;
-          asksSorted[currAskIndex + j].energyAmount -= bidsSorted[i]
-            .energyAmount;
-          bidsSorted[i].energyAmount = 0;
-          asksUsed++;
+          currProvision = bidsSorted[bidIndex].energyAmount;
+          asksSorted[currAskIndex + askOffset].energyAmount -= bidsSorted[
+            bidIndex
+          ].energyAmount;
+          bidsSorted[bidIndex].energyAmount = 0;
         } else if (
-          bidsSorted[i].energyAmount > asksSorted[currAskIndex + j].energyAmount
+          bidsSorted[bidIndex].energyAmount >
+          asksSorted[currAskIndex + askOffset].energyAmount
         ) {
-          currProvision = asksSorted[currAskIndex + j].energyAmount;
-          bidsSorted[i].energyAmount -= asksSorted[currAskIndex + j]
-            .energyAmount;
-          asksSorted[currAskIndex + j].energyAmount = 0;
-          asksUsed++;
+          currProvision = asksSorted[currAskIndex + askOffset].energyAmount;
+          bidsSorted[bidIndex].energyAmount -= asksSorted[
+            currAskIndex + askOffset
+          ].energyAmount;
+          asksSorted[currAskIndex + askOffset].energyAmount = 0;
           asksEmptied++;
         } else {
-          currProvision = bidsSorted[i].energyAmount;
-          bidsSorted[i].energyAmount = 0;
-          asksSorted[currAskIndex + j].energyAmount = 0;
-          asksUsed++;
+          currProvision = bidsSorted[bidIndex].energyAmount;
+          bidsSorted[bidIndex].energyAmount = 0;
+          asksSorted[currAskIndex + askOffset].energyAmount = 0;
           asksEmptied++;
         }
 
-        currSellers[j] = SellerHook(
-          asksSorted[currAskIndex + j].traderAddr,
+        currSellers[askOffset] = SellerHook(
+          asksSorted[currAskIndex + askOffset].traderAddr,
           currProvision
         );
-        if (bidsSorted[i].energyAmount == 0) break;
+        if (bidsSorted[bidIndex].energyAmount == 0) {
+          currClearingPrice = asksSorted[currAskIndex + askOffset].unitPrice;
+          break;
+        }
+        askOffset++;
       }
-      if (bidsSorted[i].energyAmount > 0) continue;
 
-      currSellersTruncated = new SellerHook[](asksUsed);
-      for (uint256 j = 0; j < asksUsed; j++)
+      if (bidsSorted[bidIndex].energyAmount > 0) {
+        for (uint256 j = 0; j < askOffset; j++)
+          asksSorted[currAskIndex + j].energyAmount = askAmountsFallback[j];
+        continue;
+      }
+
+      currSellersTruncated = new SellerHook[](askOffset + 1);
+      for (uint256 j = 0; j < askOffset + 1; j++)
         currSellersTruncated[j] = currSellers[j];
 
-      tradesConfirmed[i] = Trade(
-        bidsSorted[i].traderAddr,
+      tradesConfirmed[bidIndex] = Trade(
+        bidsSorted[bidIndex].traderAddr,
         currSellersTruncated
       );
       currAskIndex += asksEmptied;
-      currClearingPrice = currUnitPrice;
       tradeCount++;
     }
 
@@ -260,7 +269,6 @@ contract EnergyTrade {
     uint256 i = 0;
     uint256 j = 0;
     uint256 k = 0;
-    bool pickLeft;
 
     for (uint256 l = 0; l < leftOffers.length; l++) leftOffers[l] = _offers[l];
     for (uint256 l = 0; l < rightOffers.length; l++)
@@ -278,11 +286,11 @@ contract EnergyTrade {
     );
 
     while (i < leftOffers.length && j < rightOffers.length) {
-      pickLeft = (_unitPriceOrdering == Ordering.ASCENDING)
-        ? (leftOffers[i].unitPrice <= rightOffers[j].unitPrice)
-        : (leftOffers[i].unitPrice >= rightOffers[j].unitPrice);
-
-      if (pickLeft) result[k++] = leftOffers[i++];
+      if (
+        (_unitPriceOrdering == Ordering.ASCENDING)
+          ? (leftOffers[i].unitPrice <= rightOffers[j].unitPrice)
+          : (leftOffers[i].unitPrice >= rightOffers[j].unitPrice)
+      ) result[k++] = leftOffers[i++];
       else result[k++] = rightOffers[j++];
     }
 

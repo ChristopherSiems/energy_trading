@@ -603,4 +603,50 @@ describe("EnergyTradeMatch", function () {
     expect(sellerAmounts[0][0]).to.equal(1);
     expect(clearingPrice).to.equal(1);
   });
+
+  it("should roll a bucket with one match from two bids and one ask where the first ask cannot be met", async function () {
+    const energyAmountBid1 = 2;
+    const unitPriceBid1 = 2;
+    const totalPrice1 = energyAmountBid1 * unitPriceBid1;
+
+    const energyAmountBid2 = 1;
+    const unitPriceBid2 = 1;
+    const totalPrice2 = energyAmountBid2 * unitPriceBid2;
+
+    const energyAmountAsk = 1;
+    const unitPriceAsk = 1;
+
+    await energyTrade
+      .connect(addr1)
+      .bidRequest(energyAmountBid1, unitPriceBid1, { value: totalPrice1 });
+    await energyTrade
+      .connect(addr2)
+      .bidRequest(energyAmountBid2, unitPriceBid2, { value: totalPrice2 });
+    await energyTrade.connect(addr3).askRequest(energyAmountAsk, unitPriceAsk);
+
+    await ethers.provider.send("evm_increaseTime", [300]);
+    await ethers.provider.send("evm_mine", []);
+
+    await energyTrade.connect(owner).rollBucket();
+    const [clearingPrice, buyers, sellers, sellerAmounts] =
+      await energyTrade.getLastTradeBucket();
+
+    console.log(buyers.length);
+    console.log(sellers.length);
+    console.log(sellerAmounts.length);
+    console.log(sellers[0].length);
+    console.log(sellerAmounts[0].length);
+    console.log(sellerAmounts[0][0]);
+    console.log(clearingPrice);
+
+    expect(buyers.length).to.equal(1);
+    expect(sellers.length).to.equal(1);
+    expect(sellerAmounts.length).to.equal(1);
+    expect(sellers[0].length).to.equal(1);
+    expect(sellerAmounts[0].length).to.equal(1);
+    expect(buyers[0]).to.equal(await addr2.getAddress());
+    expect(sellers[0][0]).to.equal(await addr3.getAddress());
+    expect(sellerAmounts[0][0]).to.equal(1);
+    expect(clearingPrice).to.equal(1);
+  });
 });
