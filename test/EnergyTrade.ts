@@ -627,17 +627,8 @@ describe("EnergyTradeMatch", function () {
     await ethers.provider.send("evm_increaseTime", [300]);
     await ethers.provider.send("evm_mine", []);
 
-    await energyTrade.connect(owner).rollBucket();
     const [clearingPrice, buyers, sellers, sellerAmounts] =
       await energyTrade.getLastTradeBucket();
-
-    console.log(buyers.length);
-    console.log(sellers.length);
-    console.log(sellerAmounts.length);
-    console.log(sellers[0].length);
-    console.log(sellerAmounts[0].length);
-    console.log(sellerAmounts[0][0]);
-    console.log(clearingPrice);
 
     expect(buyers.length).to.equal(1);
     expect(sellers.length).to.equal(1);

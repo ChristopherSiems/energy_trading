@@ -44,6 +44,11 @@ contract EnergyTrade {
   mapping(uint256 => Offer[]) public askBuckets;
   mapping(uint256 => Status) public bucketStatuses;
 
+  event DebugFlag(string flag);
+  event DebugTradeBucket(uint256 clearingPrice);
+  event DebugTrade(address buyerAddr, uint256 sellerCount);
+  event DebugSeller(address sellerAddr, uint256 energyAmount);
+
   constructor(uint256 _bucketDuration) {
     contractOwner = msg.sender;
     currBucketID = 0;
@@ -57,6 +62,20 @@ contract EnergyTrade {
     require(_unitPrice > 0, "`_unitPrice` must be > 0.");
 
     _;
+  }
+
+  function debugTradeBucket(TradeBucket memory _tradeBucket) internal {
+    emit DebugTradeBucket(_tradeBucket.clearingPrice);
+
+    for (uint256 i = 0; i < _tradeBucket.confirmedTrades.length; i++) {
+      Trade memory trade = _tradeBucket.confirmedTrades[i];
+      emit DebugTrade(trade.buyerAddr, trade.sellersInfo.length);
+
+      for (uint256 j = 0; j < trade.sellersInfo.length; j++) {
+        SellerHook memory seller = trade.sellersInfo[j];
+        emit DebugSeller(seller.sellerAddr, seller.energyAmount);
+      }
+    }
   }
 
   function getLastTradeBucketTradeCount() external view returns (uint256) {
@@ -147,6 +166,7 @@ contract EnergyTrade {
     uint256 asksEmptied;
     uint256 currProvision;
     uint256 currClearingPrice = 0;
+    uint256 confirmedTradeIndex = 0;
     uint256 tradeCount = 0;
     SellerHook[] memory currSellersTruncated;
     Trade[] memory tradesConfirmedTruncated;
@@ -189,6 +209,7 @@ contract EnergyTrade {
       while (currAskIndex + askOffset < asksSorted.length) {
         askAmountsFallback[askOffset] = asksSorted[currAskIndex + askOffset]
           .energyAmount;
+
         if (
           bidsSorted[bidIndex].energyAmount <
           asksSorted[currAskIndex + askOffset].energyAmount
@@ -236,10 +257,12 @@ contract EnergyTrade {
       for (uint256 j = 0; j < askOffset + 1; j++)
         currSellersTruncated[j] = currSellers[j];
 
-      tradesConfirmed[bidIndex] = Trade(
+      tradesConfirmed[confirmedTradeIndex] = Trade(
         bidsSorted[bidIndex].traderAddr,
         currSellersTruncated
       );
+      confirmedTradeIndex++;
+
       currAskIndex += asksEmptied;
       tradeCount++;
     }
