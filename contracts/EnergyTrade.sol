@@ -2,12 +2,18 @@
 
 pragma solidity ^0.8.28;
 
+import "hardhat/console.sol";
+
 contract EnergyTrade {
   address public contractOwner;
   uint256 public currBucketID;
   uint256 public bucketStartTime;
   uint256 public bucketDuration;
-  TradeBucket public lastTradeBucket;
+
+  mapping(uint256 => Offer[]) public bidBuckets;
+  mapping(uint256 => Offer[]) public askBuckets;
+  mapping(uint256 => Status) public bucketStatuses;
+  mapping(uint256 => TradeBucket) public matchedTrades;
 
   enum Status {
     OPEN,
@@ -40,14 +46,19 @@ contract EnergyTrade {
     uint256 clearingPrice;
   }
 
-  mapping(uint256 => Offer[]) public bidBuckets;
-  mapping(uint256 => Offer[]) public askBuckets;
-  mapping(uint256 => Status) public bucketStatuses;
-
-  event DebugFlag(string flag);
-  event DebugTradeBucket(uint256 clearingPrice);
-  event DebugTrade(address buyerAddr, uint256 sellerCount);
-  event DebugSeller(address sellerAddr, uint256 energyAmount);
+  event DebugFlag(string _flag);
+  event DebugVal(uint256 _val);
+  event DebugTradeBucket(uint256 _clearingPrice);
+  event DebugTrade(address _buyerAddr, uint256 _sellerCount);
+  event DebugSeller(address _sellerAddr, uint256 _energyAmount);
+  event BidReceived(address _bidderAddr, uint256 _bidID);
+  event TradeRejected(address indexed _trader, string _message);
+  event TradeMatched(
+    address indexed _buyer,
+    address indexed _seller,
+    uint256 _energyAmount,
+    uint256 _clearingPrice
+  );
 
   constructor(uint256 _bucketDuration) {
     contractOwner = msg.sender;
@@ -79,11 +90,11 @@ contract EnergyTrade {
   }
 
   function getLastTradeBucketTradeCount() external view returns (uint256) {
-    return lastTradeBucket.confirmedTrades.length;
+    return matchedTrades[currBucketID - 1].confirmedTrades.length;
   }
 
   function getLastTradeBucketClearingPrice() external view returns (uint256) {
-    return lastTradeBucket.clearingPrice;
+    return matchedTrades[currBucketID - 1].clearingPrice;
   }
 
   function getLastTradeBucket()
@@ -96,30 +107,41 @@ contract EnergyTrade {
       uint256[][] memory sellerAmounts
     )
   {
-    buyers = new address[](lastTradeBucket.confirmedTrades.length);
-    sellers = new address[][](lastTradeBucket.confirmedTrades.length);
-    sellerAmounts = new uint256[][](lastTradeBucket.confirmedTrades.length);
+    buyers = new address[](
+      matchedTrades[currBucketID - 1].confirmedTrades.length
+    );
+    sellers = new address[][](
+      matchedTrades[currBucketID - 1].confirmedTrades.length
+    );
+    sellerAmounts = new uint256[][](
+      matchedTrades[currBucketID - 1].confirmedTrades.length
+    );
 
-    for (uint256 i = 0; i < lastTradeBucket.confirmedTrades.length; i++) {
-      buyers[i] = lastTradeBucket.confirmedTrades[i].buyerAddr;
+    for (
+      uint256 i = 0;
+      i < matchedTrades[currBucketID - 1].confirmedTrades.length;
+      i++
+    ) {
+      buyers[i] = matchedTrades[currBucketID - 1].confirmedTrades[i].buyerAddr;
 
       address[] memory sellerAddrs = new address[](
-        lastTradeBucket.confirmedTrades[i].sellersInfo.length
+        matchedTrades[currBucketID - 1].confirmedTrades[i].sellersInfo.length
       );
       uint256[] memory sellerAmountsInternal = new uint256[](
-        lastTradeBucket.confirmedTrades[i].sellersInfo.length
+        matchedTrades[currBucketID - 1].confirmedTrades[i].sellersInfo.length
       );
 
       for (
         uint256 j = 0;
-        j < lastTradeBucket.confirmedTrades[i].sellersInfo.length;
+        j <
+        matchedTrades[currBucketID - 1].confirmedTrades[i].sellersInfo.length;
         j++
       ) {
-        sellerAddrs[j] = lastTradeBucket
+        sellerAddrs[j] = matchedTrades[currBucketID - 1]
           .confirmedTrades[i]
           .sellersInfo[j]
           .sellerAddr;
-        sellerAmountsInternal[j] = lastTradeBucket
+        sellerAmountsInternal[j] = matchedTrades[currBucketID - 1]
           .confirmedTrades[i]
           .sellersInfo[j]
           .energyAmount;
@@ -129,7 +151,7 @@ contract EnergyTrade {
       sellerAmounts[i] = sellerAmountsInternal;
     }
 
-    return (lastTradeBucket.clearingPrice, buyers, sellers, sellerAmounts);
+    clearingPrice = matchedTrades[currBucketID - 1].clearingPrice;
   }
 
   function bidRequest(
@@ -160,13 +182,11 @@ contract EnergyTrade {
       "Bucket must live at least `bucketDuration` long."
     );
 
-    uint256 prevBucketID = currBucketID;
     uint256 currAskIndex = 0;
     uint256 askOffset;
     uint256 asksEmptied;
     uint256 currProvision;
     uint256 currClearingPrice = 0;
-    uint256 confirmedTradeIndex = 0;
     uint256 tradeCount = 0;
     SellerHook[] memory currSellersTruncated;
     Trade[] memory tradesConfirmedTruncated;
@@ -176,16 +196,22 @@ contract EnergyTrade {
     bucketStatuses[currBucketID] = Status.OPEN;
     bucketStartTime = block.timestamp;
 
-    Offer[] memory bidsMemory = new Offer[](bidBuckets[prevBucketID].length);
-    Offer[] memory asksMemory = new Offer[](askBuckets[prevBucketID].length);
+    Offer[] memory bidsMemory = new Offer[](
+      bidBuckets[currBucketID - 1].length
+    );
+    Offer[] memory asksMemory = new Offer[](
+      askBuckets[currBucketID - 1].length
+    );
+    uint256[] memory bidEnergyAmounts = new uint256[](bidsMemory.length);
     uint256[] memory askAmountsFallback = new uint256[](asksMemory.length);
     SellerHook[] memory currSellers = new SellerHook[](asksMemory.length);
     Trade[] memory tradesConfirmed = new Trade[](bidsMemory.length);
 
+    // copy storage arrays into memory
     for (uint256 i = 0; i < bidsMemory.length; i++)
-      bidsMemory[i] = bidBuckets[prevBucketID][i];
+      bidsMemory[i] = bidBuckets[currBucketID - 1][i];
     for (uint256 i = 0; i < asksMemory.length; i++)
-      asksMemory[i] = askBuckets[prevBucketID][i];
+      asksMemory[i] = askBuckets[currBucketID - 1][i];
 
     Offer[] memory bidsSorted = offerMergeSort(
       bidsMemory,
@@ -198,18 +224,24 @@ contract EnergyTrade {
       Ordering.DESCENDING
     );
 
+    // matching
     for (uint256 bidIndex = 0; bidIndex < bidsSorted.length; bidIndex++) {
+      // stop matching if asks are depleted or too expensive
       if (
         currAskIndex >= asksSorted.length ||
         bidsSorted[bidIndex].unitPrice < asksSorted[currAskIndex].unitPrice
       ) break;
 
+      // match asks
       askOffset = 0;
       asksEmptied = 0;
+      bidEnergyAmounts[bidIndex] = bidsSorted[bidIndex].energyAmount;
       while (currAskIndex + askOffset < asksSorted.length) {
+        // store ask energy amounts to restore later
         askAmountsFallback[askOffset] = asksSorted[currAskIndex + askOffset]
           .energyAmount;
 
+        // trading logic
         if (
           bidsSorted[bidIndex].energyAmount <
           asksSorted[currAskIndex + askOffset].energyAmount
@@ -236,45 +268,107 @@ contract EnergyTrade {
           asksEmptied++;
         }
 
+        // create object representing the current seller's contribution to the trade
         currSellers[askOffset] = SellerHook(
           asksSorted[currAskIndex + askOffset].traderAddr,
           currProvision
         );
+
+        // check if the requested amount of energy is spoken for
         if (bidsSorted[bidIndex].energyAmount == 0) {
           currClearingPrice = asksSorted[currAskIndex + askOffset].unitPrice;
           break;
         }
+
         askOffset++;
       }
 
+      // restore asked supply if asks are unused
       if (bidsSorted[bidIndex].energyAmount > 0) {
         for (uint256 j = 0; j < askOffset; j++)
           asksSorted[currAskIndex + j].energyAmount = askAmountsFallback[j];
         continue;
       }
 
+      // truncate the list of SellerHooks
       currSellersTruncated = new SellerHook[](askOffset + 1);
       for (uint256 j = 0; j < askOffset + 1; j++)
         currSellersTruncated[j] = currSellers[j];
 
-      tradesConfirmed[confirmedTradeIndex] = Trade(
+      // create a trade object for the bid
+      tradesConfirmed[tradeCount] = Trade(
         bidsSorted[bidIndex].traderAddr,
         currSellersTruncated
       );
-      confirmedTradeIndex++;
-
-      currAskIndex += asksEmptied;
       tradeCount++;
+      currAskIndex += asksEmptied;
     }
 
     tradesConfirmedTruncated = new Trade[](tradeCount);
-    for (uint256 i = 0; i < tradeCount; i++)
+    for (uint256 i = 0; i < tradeCount; i++) {
       tradesConfirmedTruncated[i] = tradesConfirmed[i];
-    lastTradeBucket = TradeBucket(tradesConfirmedTruncated, currClearingPrice);
+    }
+    matchedTrades[currBucketID - 1] = TradeBucket(
+      tradesConfirmedTruncated,
+      currClearingPrice
+    );
 
-    delete bidBuckets[prevBucketID];
-    delete askBuckets[prevBucketID];
+    // refunds
+    for (uint256 i = 0; i < bidsSorted.length; i++) {
+      payable(bidsSorted[i].traderAddr).transfer(
+        (bidsSorted[i].energyAmount != 0)
+          ? bidsSorted[i].energyAmount * bidsSorted[i].unitPrice
+          : bidEnergyAmounts[i] * (bidsSorted[i].unitPrice - currClearingPrice)
+      );
+
+      // inform bidders that their bids were unmet
+      if (bidsSorted[i].energyAmount != 0)
+        emit TradeRejected(
+          bidsSorted[i].traderAddr,
+          "Bid rejected due to unmeetable demand at bid price."
+        );
+    }
+
+    // inform askers that their asks were unmet
+    for (uint256 i = 0; i < asksSorted.length; i++)
+      if (asksSorted[i].energyAmount != 0)
+        emit TradeRejected(
+          asksSorted[i].traderAddr,
+          "Ask rejected due to undemanded supply at ask price."
+        );
+
+    // inform the market of successful matches
+    for (
+      uint256 tradeIndex = 0;
+      tradeIndex < matchedTrades[currBucketID - 1].confirmedTrades.length;
+      tradeIndex++
+    ) {
+      for (
+        uint256 sellerIndex = 0;
+        sellerIndex <
+        matchedTrades[currBucketID - 1]
+          .confirmedTrades[tradeIndex]
+          .sellersInfo
+          .length;
+        sellerIndex++
+      ) {
+        emit TradeMatched(
+          matchedTrades[currBucketID - 1].confirmedTrades[tradeIndex].buyerAddr,
+          matchedTrades[currBucketID - 1]
+            .confirmedTrades[tradeIndex]
+            .sellersInfo[sellerIndex]
+            .sellerAddr,
+          matchedTrades[currBucketID - 1]
+            .confirmedTrades[tradeIndex]
+            .sellersInfo[sellerIndex]
+            .energyAmount,
+          currClearingPrice
+        );
+      }
+    }
   }
+
+  function markEnergySupplied() external {}
 
   function offerMergeSort(
     Offer[] memory _offers,
