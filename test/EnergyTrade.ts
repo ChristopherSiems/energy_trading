@@ -12,7 +12,7 @@ describe("EnergyTradeMatch", function () {
   let addr4: Signer;
 
   beforeEach(async function () {
-    const bucketDuration = 300;
+    const bucketDuration = 900;
     [owner, addr1, addr2, addr3, addr4] = await ethers.getSigners();
 
     energyTrade = await (
@@ -24,6 +24,10 @@ describe("EnergyTradeMatch", function () {
     expect(await energyTrade.contractOwner()).to.equal(
       await owner.getAddress(),
     );
+  });
+
+  it("should set the current bucket status to Status.OPEN", async function () {
+    expect(await energyTrade.bucketStatuses(0)).to.equal(0);
   });
 
   it("should fail placing a `bidRequest` with 0 `energyAmount`", async function () {
@@ -80,6 +84,20 @@ describe("EnergyTradeMatch", function () {
     expect(bid.unitPrice).to.equal(unitPrice);
   });
 
+  it("should emit a `TradeReceived` event from a `bidRequest`", async function () {
+    const energyAmount = 1;
+    const unitPrice = 1;
+    const totalPrice = energyAmount * unitPrice;
+
+    await expect(
+      energyTrade
+        .connect(addr1)
+        .bidRequest(energyAmount, unitPrice, { value: totalPrice }),
+    )
+      .to.emit(energyTrade, "TradeReceived")
+      .withArgs(await addr1.getAddress(), 0, 0, 0, 1, 1);
+  });
+
   it("should fail placing a `askRequest` with 0 `energyAmount`", async function () {
     const energyAmount = 0;
     const unitPrice = 1;
@@ -113,14 +131,21 @@ describe("EnergyTradeMatch", function () {
     expect(ask.unitPrice).to.equal(unitPrice);
   });
 
+  it("should emit a `TradeReceived` event from an `askRequest`", async function () {
+    const energyAmount = 1;
+    const unitPrice = 1;
+
+    await expect(energyTrade.connect(addr2).askRequest(energyAmount, unitPrice))
+      .to.emit(energyTrade, "TradeReceived")
+      .withArgs(await addr2.getAddress(), 0, 1, 0, 1, 1);
+  });
+
   it("should allow the owner to close a bucket", async function () {
-    await ethers.provider.send("evm_increaseTime", [300]);
+    await ethers.provider.send("evm_increaseTime", [900]);
     await ethers.provider.send("evm_mine", []);
 
     await energyTrade.connect(owner).rollBucket();
-    expect(
-      await energyTrade.bucketStatuses((await energyTrade.currBucketID()) - 1n),
-    ).to.equal(1n);
+    expect(await energyTrade.bucketStatuses(0)).to.equal(1n);
   });
 
   it("should sort offers by `unitPrice` in ascending order", async function () {
@@ -231,8 +256,24 @@ describe("EnergyTradeMatch", function () {
     );
   });
 
+  it("should set the previous bucket status to Status.CLOSED", async function () {
+    await ethers.provider.send("evm_increaseTime", [900]);
+    await ethers.provider.send("evm_mine", []);
+    await energyTrade.connect(owner).rollBucket();
+
+    expect(await energyTrade.bucketStatuses(0)).to.equal(1);
+  });
+
+  it("should set the new current bucket status to Status.OPEN", async function () {
+    await ethers.provider.send("evm_increaseTime", [900]);
+    await ethers.provider.send("evm_mine", []);
+    await energyTrade.connect(owner).rollBucket();
+
+    expect(await energyTrade.bucketStatuses(1)).to.equal(0);
+  });
+
   it("should roll an empty bucket", async function () {
-    await ethers.provider.send("evm_increaseTime", [300]);
+    await ethers.provider.send("evm_increaseTime", [900]);
     await ethers.provider.send("evm_mine", []);
 
     await energyTrade.connect(owner).rollBucket();
@@ -251,8 +292,9 @@ describe("EnergyTradeMatch", function () {
       .connect(addr1)
       .bidRequest(energyAmount, unitPrice, { value: totalPrice });
 
-    await ethers.provider.send("evm_increaseTime", [300]);
+    await ethers.provider.send("evm_increaseTime", [900]);
     await ethers.provider.send("evm_mine", []);
+
     await energyTrade.connect(owner).rollBucket();
 
     expect(await energyTrade.getLastTradeBucketTradeCount()).to.equal(0n);
@@ -264,8 +306,9 @@ describe("EnergyTradeMatch", function () {
     const unitPrice = 1;
     await energyTrade.connect(addr2).askRequest(energyAmount, unitPrice);
 
-    await ethers.provider.send("evm_increaseTime", [300]);
+    await ethers.provider.send("evm_increaseTime", [900]);
     await ethers.provider.send("evm_mine", []);
+
     await energyTrade.connect(owner).rollBucket();
 
     expect(await energyTrade.getLastTradeBucketTradeCount()).to.equal(0n);
@@ -285,7 +328,7 @@ describe("EnergyTradeMatch", function () {
       .bidRequest(energyAmountBid, unitPriceBid, { value: totalPrice });
     await energyTrade.connect(addr2).askRequest(energyAmountAsk, unitPriceAsk);
 
-    await ethers.provider.send("evm_increaseTime", [300]);
+    await ethers.provider.send("evm_increaseTime", [900]);
     await ethers.provider.send("evm_mine", []);
     await energyTrade.connect(owner).rollBucket();
 
@@ -306,7 +349,37 @@ describe("EnergyTradeMatch", function () {
       .bidRequest(energyAmountBid, unitPriceBid, { value: totalPrice });
     await energyTrade.connect(addr2).askRequest(energyAmountAsk, unitPriceAsk);
 
-    await ethers.provider.send("evm_increaseTime", [300]);
+    await ethers.provider.send("evm_increaseTime", [900]);
+    await ethers.provider.send("evm_mine", []);
+    await energyTrade.connect(owner).rollBucket();
+
+    expect(await energyTrade.getLastTradeBucketTradeCount()).to.equal(0n);
+    expect(await energyTrade.getLastTradeBucketClearingPrice()).to.equal(0n);
+  });
+
+  it("should roll an empty bucket with one bid and two asks where the bid starts to match and then fails", async function () {
+    const energyAmountBid = 2;
+    const unitPriceBid = 2;
+    const totalPrice = energyAmountBid * unitPriceBid;
+
+    const energyAmountAsk1 = 1;
+    const unitPriceAsk1 = 1;
+
+    const energyAmountAsk2 = 1;
+    const unitPriceAsk2 = 3;
+
+    await energyTrade
+      .connect(addr1)
+      .bidRequest(energyAmountBid, unitPriceBid, { value: totalPrice });
+
+    await energyTrade
+      .connect(addr2)
+      .askRequest(energyAmountAsk1, unitPriceAsk1);
+    await energyTrade
+      .connect(addr2)
+      .askRequest(energyAmountAsk2, unitPriceAsk2);
+
+    await ethers.provider.send("evm_increaseTime", [900]);
     await ethers.provider.send("evm_mine", []);
     await energyTrade.connect(owner).rollBucket();
 
@@ -327,22 +400,31 @@ describe("EnergyTradeMatch", function () {
       .bidRequest(energyAmountBid, unitPriceBid, { value: totalPrice });
     await energyTrade.connect(addr2).askRequest(energyAmountAsk, unitPriceAsk);
 
-    await ethers.provider.send("evm_increaseTime", [300]);
+    await ethers.provider.send("evm_increaseTime", [900]);
     await ethers.provider.send("evm_mine", []);
 
-    await energyTrade.rollBucket();
-    const [clearingPrice, buyers, sellers, sellerAmounts] =
+    await expect(energyTrade.connect(owner).rollBucket())
+      .to.emit(energyTrade, "TradeMatched")
+      .withArgs(
+        await addr1.getAddress(),
+        await addr2.getAddress(),
+        0,
+        0,
+        1,
+        1,
+        false,
+      );
+    const [clearingPrice, tradeCount, energyAmounts, buyerAddrs, sellerAddrs] =
       await energyTrade.getLastTradeBucket();
 
-    expect(buyers.length).to.equal(1);
-    expect(sellers.length).to.equal(1);
-    expect(sellerAmounts.length).to.equal(1);
-    expect(sellers[0].length).to.equal(1);
-    expect(sellerAmounts[0].length).to.equal(1);
-    expect(buyers[0]).to.equal(await addr1.getAddress());
-    expect(sellers[0][0]).to.equal(await addr2.getAddress());
-    expect(sellerAmounts[0][0]).to.equal(1);
     expect(clearingPrice).to.equal(1);
+    expect(tradeCount).to.equal(1);
+    expect(energyAmounts.length).to.equal(1);
+    expect(energyAmounts[0]).to.equal(1);
+    expect(buyerAddrs.length).to.equal(1);
+    expect(buyerAddrs[0]).to.equal(await addr1.getAddress());
+    expect(sellerAddrs.length).to.equal(1);
+    expect(sellerAddrs[0]).to.equal(await addr2.getAddress());
   });
 
   it("should roll a bucket with one match from one bid and ask with the ask partially met", async function () {
@@ -358,22 +440,31 @@ describe("EnergyTradeMatch", function () {
       .bidRequest(energyAmountBid, unitPriceBid, { value: totalPrice });
     await energyTrade.connect(addr2).askRequest(energyAmountAsk, unitPriceAsk);
 
-    await ethers.provider.send("evm_increaseTime", [300]);
+    await ethers.provider.send("evm_increaseTime", [900]);
     await ethers.provider.send("evm_mine", []);
 
-    await energyTrade.connect(owner).rollBucket();
-    const [clearingPrice, buyers, sellers, sellerAmounts] =
+    await expect(energyTrade.connect(owner).rollBucket())
+      .to.emit(energyTrade, "TradeMatched")
+      .withArgs(
+        await addr1.getAddress(),
+        await addr2.getAddress(),
+        0,
+        0,
+        1,
+        1,
+        false,
+      );
+    const [clearingPrice, tradeCount, energyAmounts, buyerAddrs, sellerAddrs] =
       await energyTrade.getLastTradeBucket();
 
-    expect(buyers.length).to.equal(1);
-    expect(sellers.length).to.equal(1);
-    expect(sellerAmounts.length).to.equal(1);
-    expect(sellers[0].length).to.equal(1);
-    expect(sellerAmounts[0].length).to.equal(1);
-    expect(buyers[0]).to.equal(await addr1.getAddress());
-    expect(sellers[0][0]).to.equal(await addr2.getAddress());
-    expect(sellerAmounts[0][0]).to.equal(1);
     expect(clearingPrice).to.equal(1);
+    expect(tradeCount).to.equal(1);
+    expect(energyAmounts.length).to.equal(1);
+    expect(energyAmounts[0]).to.equal(1);
+    expect(buyerAddrs.length).to.equal(1);
+    expect(buyerAddrs[0]).to.equal(await addr1.getAddress());
+    expect(sellerAddrs.length).to.equal(1);
+    expect(sellerAddrs[0]).to.equal(await addr2.getAddress());
   });
 
   it("should roll a bucket with one match from one bid and two asks", async function () {
@@ -397,24 +488,24 @@ describe("EnergyTradeMatch", function () {
       .connect(addr3)
       .askRequest(energyAmountAsk2, unitPriceAsk2);
 
-    await ethers.provider.send("evm_increaseTime", [300]);
+    await ethers.provider.send("evm_increaseTime", [900]);
     await ethers.provider.send("evm_mine", []);
 
     await energyTrade.connect(owner).rollBucket();
-    const [clearingPrice, buyers, sellers, sellerAmounts] =
+    const [clearingPrice, tradeCount, energyAmounts, buyerAddrs, sellerAddrs] =
       await energyTrade.getLastTradeBucket();
 
-    expect(buyers.length).to.equal(1);
-    expect(sellers.length).to.equal(1);
-    expect(sellerAmounts.length).to.equal(1);
-    expect(sellers[0].length).to.equal(2);
-    expect(sellerAmounts[0].length).to.equal(2);
-    expect(buyers[0]).to.equal(await addr1.getAddress());
-    expect(sellers[0][0]).to.equal(await addr2.getAddress());
-    expect(sellers[0][1]).to.equal(await addr3.getAddress());
-    expect(sellerAmounts[0][0]).to.equal(1);
-    expect(sellerAmounts[0][1]).to.equal(1);
     expect(clearingPrice).to.equal(1);
+    expect(tradeCount).to.equal(2);
+    expect(energyAmounts.length).to.equal(2);
+    expect(energyAmounts[0]).to.equal(1);
+    expect(energyAmounts[1]).to.equal(1);
+    expect(buyerAddrs.length).to.equal(2);
+    expect(buyerAddrs[0]).to.equal(await addr1.getAddress());
+    expect(buyerAddrs[1]).to.equal(await addr1.getAddress());
+    expect(sellerAddrs.length).to.equal(2);
+    expect(sellerAddrs[0]).to.equal(await addr2.getAddress());
+    expect(sellerAddrs[1]).to.equal(await addr3.getAddress());
   });
 
   it("should roll a bucket with two matches from two bids and asks", async function () {
@@ -435,27 +526,24 @@ describe("EnergyTradeMatch", function () {
     await energyTrade.connect(addr3).askRequest(energyAmountAsk, unitPriceAsk);
     await energyTrade.connect(addr4).askRequest(energyAmountAsk, unitPriceAsk);
 
-    await ethers.provider.send("evm_increaseTime", [300]);
+    await ethers.provider.send("evm_increaseTime", [900]);
     await ethers.provider.send("evm_mine", []);
 
     await energyTrade.connect(owner).rollBucket();
-    const [clearingPrice, buyers, sellers, sellerAmounts] =
+    const [clearingPrice, tradeCount, energyAmounts, buyerAddrs, sellerAddrs] =
       await energyTrade.getLastTradeBucket();
 
-    expect(buyers.length).to.equal(2);
-    expect(sellers.length).to.equal(2);
-    expect(sellerAmounts.length).to.equal(2);
-    expect(sellers[0].length).to.equal(1);
-    expect(sellers[1].length).to.equal(1);
-    expect(sellerAmounts[0].length).to.equal(1);
-    expect(sellerAmounts[1].length).to.equal(1);
-    expect(buyers[0]).to.equal(await addr1.getAddress());
-    expect(buyers[1]).to.equal(await addr2.getAddress());
-    expect(sellers[0][0]).to.equal(await addr3.getAddress());
-    expect(sellers[1][0]).to.equal(await addr4.getAddress());
-    expect(sellerAmounts[0][0]).to.equal(1);
-    expect(sellerAmounts[1][0]).to.equal(1);
     expect(clearingPrice).to.equal(1);
+    expect(tradeCount).to.equal(2);
+    expect(energyAmounts.length).to.equal(2);
+    expect(energyAmounts[0]).to.equal(1);
+    expect(energyAmounts[1]).to.equal(1);
+    expect(buyerAddrs.length).to.equal(2);
+    expect(buyerAddrs[0]).to.equal(await addr1.getAddress());
+    expect(buyerAddrs[1]).to.equal(await addr2.getAddress());
+    expect(sellerAddrs.length).to.equal(2);
+    expect(sellerAddrs[0]).to.equal(await addr3.getAddress());
+    expect(sellerAddrs[1]).to.equal(await addr4.getAddress());
   });
 
   it("should roll a bucket with two matches from two bids and one ask", async function () {
@@ -472,30 +560,26 @@ describe("EnergyTradeMatch", function () {
     await energyTrade
       .connect(addr2)
       .bidRequest(energyAmountBid, unitPriceBid, { value: totalPrice });
-
     await energyTrade.connect(addr3).askRequest(energyAmountAsk, unitPriceAsk);
 
-    await ethers.provider.send("evm_increaseTime", [300]);
+    await ethers.provider.send("evm_increaseTime", [900]);
     await ethers.provider.send("evm_mine", []);
 
     await energyTrade.connect(owner).rollBucket();
-    const [clearingPrice, buyers, sellers, sellerAmounts] =
+    const [clearingPrice, tradeCount, energyAmounts, buyerAddrs, sellerAddrs] =
       await energyTrade.getLastTradeBucket();
 
-    expect(buyers.length).to.equal(2);
-    expect(sellers.length).to.equal(2);
-    expect(sellerAmounts.length).to.equal(2);
-    expect(sellers[0].length).to.equal(1);
-    expect(sellers[1].length).to.equal(1);
-    expect(sellerAmounts[0].length).to.equal(1);
-    expect(sellerAmounts[1].length).to.equal(1);
-    expect(buyers[0]).to.equal(await addr1.getAddress());
-    expect(buyers[1]).to.equal(await addr2.getAddress());
-    expect(sellers[0][0]).to.equal(await addr3.getAddress());
-    expect(sellers[1][0]).to.equal(await addr3.getAddress());
-    expect(sellerAmounts[0][0]).to.equal(1);
-    expect(sellerAmounts[1][0]).to.equal(1);
     expect(clearingPrice).to.equal(1);
+    expect(tradeCount).to.equal(2);
+    expect(energyAmounts.length).to.equal(2);
+    expect(energyAmounts[0]).to.equal(1);
+    expect(energyAmounts[1]).to.equal(1);
+    expect(buyerAddrs.length).to.equal(2);
+    expect(buyerAddrs[0]).to.equal(await addr1.getAddress());
+    expect(buyerAddrs[1]).to.equal(await addr2.getAddress());
+    expect(sellerAddrs.length).to.equal(2);
+    expect(sellerAddrs[0]).to.equal(await addr3.getAddress());
+    expect(sellerAddrs[1]).to.equal(await addr3.getAddress());
   });
 
   it("should roll a bucket with one match from two different bids and one ask", async function () {
@@ -519,22 +603,31 @@ describe("EnergyTradeMatch", function () {
 
     await energyTrade.connect(addr3).askRequest(energyAmountAsk, unitPriceAsk);
 
-    await ethers.provider.send("evm_increaseTime", [300]);
+    await ethers.provider.send("evm_increaseTime", [900]);
     await ethers.provider.send("evm_mine", []);
 
-    await energyTrade.connect(owner).rollBucket();
-    const [clearingPrice, buyers, sellers, sellerAmounts] =
+    await expect(energyTrade.connect(owner).rollBucket())
+      .to.emit(energyTrade, "TradeMatched")
+      .withArgs(
+        await addr2.getAddress(),
+        await addr3.getAddress(),
+        0,
+        0,
+        1,
+        1,
+        false,
+      );
+    const [clearingPrice, tradeCount, energyAmounts, buyerAddrs, sellerAddrs] =
       await energyTrade.getLastTradeBucket();
 
-    expect(buyers.length).to.equal(1);
-    expect(sellers.length).to.equal(1);
-    expect(sellerAmounts.length).to.equal(1);
-    expect(sellers[0].length).to.equal(1);
-    expect(sellerAmounts[0].length).to.equal(1);
-    expect(buyers[0]).to.equal(await addr2.getAddress());
-    expect(sellers[0][0]).to.equal(await addr3.getAddress());
-    expect(sellerAmounts[0][0]).to.equal(1);
     expect(clearingPrice).to.equal(1);
+    expect(tradeCount).to.equal(1);
+    expect(energyAmounts.length).to.equal(1);
+    expect(energyAmounts[0]).to.equal(1);
+    expect(buyerAddrs.length).to.equal(1);
+    expect(buyerAddrs[0]).to.equal(await addr2.getAddress());
+    expect(sellerAddrs.length).to.equal(1);
+    expect(sellerAddrs[0]).to.equal(await addr3.getAddress());
   });
 
   it("should roll a bucket with one match from one bid and two different asks", async function () {
@@ -558,25 +651,34 @@ describe("EnergyTradeMatch", function () {
       .connect(addr3)
       .askRequest(energyAmountAsk2, unitPriceAsk2);
 
-    await ethers.provider.send("evm_increaseTime", [300]);
+    await ethers.provider.send("evm_increaseTime", [900]);
     await ethers.provider.send("evm_mine", []);
 
-    await energyTrade.connect(owner).rollBucket();
-    const [clearingPrice, buyers, sellers, sellerAmounts] =
+    await expect(energyTrade.connect(owner).rollBucket())
+      .to.emit(energyTrade, "TradeMatched")
+      .withArgs(
+        await addr1.getAddress(),
+        await addr3.getAddress(),
+        0,
+        0,
+        1,
+        1,
+        false,
+      );
+    const [clearingPrice, tradeCount, energyAmounts, buyerAddrs, sellerAddrs] =
       await energyTrade.getLastTradeBucket();
 
-    expect(buyers.length).to.equal(1);
-    expect(sellers.length).to.equal(1);
-    expect(sellerAmounts.length).to.equal(1);
-    expect(sellers[0].length).to.equal(1);
-    expect(sellerAmounts[0].length).to.equal(1);
-    expect(buyers[0]).to.equal(await addr1.getAddress());
-    expect(sellers[0][0]).to.equal(await addr3.getAddress());
-    expect(sellerAmounts[0][0]).to.equal(1);
     expect(clearingPrice).to.equal(1);
+    expect(tradeCount).to.equal(1);
+    expect(energyAmounts.length).to.equal(1);
+    expect(energyAmounts[0]).to.equal(1);
+    expect(buyerAddrs.length).to.equal(1);
+    expect(buyerAddrs[0]).to.equal(await addr1.getAddress());
+    expect(sellerAddrs.length).to.equal(1);
+    expect(sellerAddrs[0]).to.equal(await addr3.getAddress());
   });
 
-  it("should roll a bucket with one match from two bids and one ask where the first ask cannot be met", async function () {
+  it("should roll a bucket with one match from two bids and one ask where the first bid cannot be met", async function () {
     const energyAmountBid1 = 2;
     const unitPriceBid1 = 2;
     const totalPrice1 = energyAmountBid1 * unitPriceBid1;
@@ -596,22 +698,31 @@ describe("EnergyTradeMatch", function () {
       .bidRequest(energyAmountBid2, unitPriceBid2, { value: totalPrice2 });
     await energyTrade.connect(addr3).askRequest(energyAmountAsk, unitPriceAsk);
 
-    await ethers.provider.send("evm_increaseTime", [300]);
+    await ethers.provider.send("evm_increaseTime", [900]);
     await ethers.provider.send("evm_mine", []);
 
-    await energyTrade.connect(owner).rollBucket();
-    const [clearingPrice, buyers, sellers, sellerAmounts] =
+    await expect(energyTrade.connect(owner).rollBucket())
+      .to.emit(energyTrade, "TradeMatched")
+      .withArgs(
+        await addr2.getAddress(),
+        await addr3.getAddress(),
+        0,
+        0,
+        1,
+        1,
+        false,
+      );
+    const [clearingPrice, tradeCount, energyAmounts, buyerAddrs, sellerAddrs] =
       await energyTrade.getLastTradeBucket();
 
-    expect(buyers.length).to.equal(1);
-    expect(sellers.length).to.equal(1);
-    expect(sellerAmounts.length).to.equal(1);
-    expect(sellers[0].length).to.equal(1);
-    expect(sellerAmounts[0].length).to.equal(1);
-    expect(buyers[0]).to.equal(await addr2.getAddress());
-    expect(sellers[0][0]).to.equal(await addr3.getAddress());
-    expect(sellerAmounts[0][0]).to.equal(1);
     expect(clearingPrice).to.equal(1);
+    expect(tradeCount).to.equal(1);
+    expect(energyAmounts.length).to.equal(1);
+    expect(energyAmounts[0]).to.equal(1);
+    expect(buyerAddrs.length).to.equal(1);
+    expect(buyerAddrs[0]).to.equal(await addr2.getAddress());
+    expect(sellerAddrs.length).to.equal(1);
+    expect(sellerAddrs[0]).to.equal(await addr3.getAddress());
   });
 
   it("should refund an unmet bid", async function () {
@@ -626,7 +737,7 @@ describe("EnergyTradeMatch", function () {
       addr1.getAddress(),
     );
 
-    await ethers.provider.send("evm_increaseTime", [300]);
+    await ethers.provider.send("evm_increaseTime", [900]);
     await ethers.provider.send("evm_mine", []);
 
     await energyTrade.connect(owner).rollBucket();
@@ -657,7 +768,7 @@ describe("EnergyTradeMatch", function () {
       addr1.getAddress(),
     );
 
-    await ethers.provider.send("evm_increaseTime", [300]);
+    await ethers.provider.send("evm_increaseTime", [900]);
     await ethers.provider.send("evm_mine", []);
 
     await energyTrade.connect(owner).rollBucket();
@@ -670,6 +781,51 @@ describe("EnergyTradeMatch", function () {
       totalPrice - 1,
       ethers.parseEther("0.001"),
     );
+  });
+
+  it("should emit a `TradeRejected` event due to an unmet bid", async function () {
+    const energyAmountBid = 1;
+    const unitPriceBid = 1;
+    const totalPrice = energyAmountBid * unitPriceBid;
+
+    await energyTrade
+      .connect(addr1)
+      .bidRequest(energyAmountBid, unitPriceBid, { value: totalPrice });
+
+    await ethers.provider.send("evm_increaseTime", [900]);
+    await ethers.provider.send("evm_mine", []);
+
+    await expect(energyTrade.connect(owner).rollBucket())
+      .to.emit(energyTrade, "TradeRejected")
+      .withArgs(
+        await addr1.getAddress(),
+        0,
+        0,
+        0,
+        1,
+        "Bid rejected due to unmeetable demand at bid price.",
+      );
+  });
+
+  it("should emit a `TradeRejected` event due to an unmet ask", async function () {
+    const energyAmountBid = 1;
+    const unitPriceBid = 1;
+
+    await energyTrade.connect(addr1).askRequest(energyAmountBid, unitPriceBid);
+
+    await ethers.provider.send("evm_increaseTime", [900]);
+    await ethers.provider.send("evm_mine", []);
+
+    await expect(energyTrade.connect(owner).rollBucket())
+      .to.emit(energyTrade, "TradeRejected")
+      .withArgs(
+        await addr1.getAddress(),
+        0,
+        1,
+        0,
+        0,
+        "Ask partially or fully rejected due to undemanded supply at ask price.",
+      );
   });
 
   it("should not refund a successful match", async function () {
@@ -688,7 +844,7 @@ describe("EnergyTradeMatch", function () {
       addr1.getAddress(),
     );
 
-    await ethers.provider.send("evm_increaseTime", [300]);
+    await ethers.provider.send("evm_increaseTime", [900]);
     await ethers.provider.send("evm_mine", []);
 
     await energyTrade.connect(owner).rollBucket();
@@ -702,44 +858,84 @@ describe("EnergyTradeMatch", function () {
     );
   });
 
-  it("should emit a `TradeRejected` event given an unmet bid", async function () {
+  it("should refund an unfulfilled trade", async function () {
     const energyAmountBid = 1;
     const unitPriceBid = 1;
     const totalPrice = energyAmountBid * unitPriceBid;
 
+    const traderStartBalance = await ethers.provider.getBalance(
+      addr1.getAddress(),
+    );
     await energyTrade
       .connect(addr1)
       .bidRequest(energyAmountBid, unitPriceBid, { value: totalPrice });
+    await energyTrade.connect(addr2).askRequest(energyAmountBid, unitPriceBid);
 
-    await ethers.provider.send("evm_increaseTime", [300]);
+    await ethers.provider.send("evm_increaseTime", [900]);
     await ethers.provider.send("evm_mine", []);
+    await energyTrade.connect(owner).rollBucket();
 
-    await expect(energyTrade.rollBucket())
-      .to.emit(energyTrade, "TradeRejected")
-      .withArgs(
-        await addr1.getAddress(),
-        "Bid rejected due to unmeetable demand at bid price.",
-      );
+    await ethers.provider.send("evm_increaseTime", [900]);
+    await ethers.provider.send("evm_mine", []);
+    await energyTrade.connect(owner).rollBucket();
+
+    expect(await ethers.provider.getBalance(addr1.getAddress())).to.be.closeTo(
+      traderStartBalance,
+      ethers.parseEther("0.001"),
+    );
   });
 
-  it("should emit a `TradeRejected` event given an unmet ask", async function () {
-    const energyAmountAsk = 1;
-    const unitPriceAsk = 1;
-
-    await energyTrade.connect(addr1).askRequest(energyAmountAsk, unitPriceAsk);
-
-    await ethers.provider.send("evm_increaseTime", [300]);
+  it("should set the old bucket status to Status.CLEARED", async function () {
+    await ethers.provider.send("evm_increaseTime", [900]);
     await ethers.provider.send("evm_mine", []);
+    await energyTrade.connect(owner).rollBucket();
 
-    await expect(energyTrade.rollBucket())
-      .to.emit(energyTrade, "TradeRejected")
-      .withArgs(
-        await addr1.getAddress(),
-        "Ask rejected due to undemanded supply at ask price.",
-      );
+    await ethers.provider.send("evm_increaseTime", [900]);
+    await ethers.provider.send("evm_mine", []);
+    await energyTrade.connect(owner).rollBucket();
+
+    await ethers.provider.send("evm_increaseTime", [900]);
+    await ethers.provider.send("evm_mine", []);
+    await energyTrade.connect(owner).rollBucket();
+
+    expect(await energyTrade.bucketStatuses(0)).to.equal(2);
   });
 
-  it("should emit a `TradeMatched` event with correct values", async function () {
+  it("should mark an old trade as cleared", async function () {
+    const energyAmountBid = 1;
+    const unitPriceBid = 1;
+    const totalPrice = energyAmountBid * unitPriceBid;
+
+    const traderStartBalance = await ethers.provider.getBalance(
+      addr1.getAddress(),
+    );
+
+    await energyTrade
+      .connect(addr1)
+      .bidRequest(energyAmountBid, unitPriceBid, { value: totalPrice });
+    await energyTrade.connect(addr2).askRequest(energyAmountBid, unitPriceBid);
+
+    await ethers.provider.send("evm_increaseTime", [900]);
+    await ethers.provider.send("evm_mine", []);
+    await energyTrade.connect(owner).rollBucket();
+
+    await ethers.provider.send("evm_increaseTime", [900]);
+    await ethers.provider.send("evm_mine", []);
+    await energyTrade.connect(owner).rollBucket();
+
+    expect(await ethers.provider.getBalance(addr1.getAddress())).to.be.closeTo(
+      traderStartBalance,
+      ethers.parseEther("0.001"),
+    );
+  });
+
+  it("should fail to mark energy as supplied due to invalid IDs", async function () {
+    await expect(
+      energyTrade.connect(addr1).markEnergySupplied(0, 1),
+    ).to.be.revertedWith("`_tradeID` must be valid.");
+  });
+
+  it("should fail to mark energy as supplied due to wrong marker", async function () {
     const energyAmountBid = 1;
     const unitPriceBid = 1;
     const totalPrice = energyAmountBid * unitPriceBid;
@@ -752,11 +948,79 @@ describe("EnergyTradeMatch", function () {
       .bidRequest(energyAmountBid, unitPriceBid, { value: totalPrice });
     await energyTrade.connect(addr2).askRequest(energyAmountAsk, unitPriceAsk);
 
-    await ethers.provider.send("evm_increaseTime", [300]);
+    await ethers.provider.send("evm_increaseTime", [900]);
     await ethers.provider.send("evm_mine", []);
+    await energyTrade.connect(owner).rollBucket();
 
-    await expect(energyTrade.rollBucket())
-      .to.emit(energyTrade, "TradeMatched")
-      .withArgs(await addr1.getAddress(), await addr2.getAddress(), 1, 1);
+    await expect(
+      energyTrade.connect(addr1).markEnergySupplied(0, 0),
+    ).to.be.revertedWith("Only seller can mark energy supplied.");
+  });
+
+  it("should fail to mark energy as supplied due to energy already marked", async function () {
+    const energyAmountBid = 1;
+    const unitPriceBid = 1;
+    const totalPrice = energyAmountBid * unitPriceBid;
+
+    const energyAmountAsk = 1;
+    const unitPriceAsk = 1;
+
+    await energyTrade
+      .connect(addr1)
+      .bidRequest(energyAmountBid, unitPriceBid, { value: totalPrice });
+    await energyTrade.connect(addr2).askRequest(energyAmountAsk, unitPriceAsk);
+
+    await ethers.provider.send("evm_increaseTime", [900]);
+    await ethers.provider.send("evm_mine", []);
+    await energyTrade.connect(owner).rollBucket();
+
+    await energyTrade.connect(addr2).markEnergySupplied(0, 0);
+    await expect(
+      energyTrade.connect(addr2).markEnergySupplied(0, 0),
+    ).to.be.revertedWith("Energy cannot already be supplied.");
+  });
+
+  it("should mark energy as supplied", async function () {
+    const energyAmountBid = 1;
+    const unitPriceBid = 1;
+    const totalPrice = energyAmountBid * unitPriceBid;
+
+    const energyAmountAsk = 1;
+    const unitPriceAsk = 1;
+
+    await energyTrade
+      .connect(addr1)
+      .bidRequest(energyAmountBid, unitPriceBid, { value: totalPrice });
+    await energyTrade.connect(addr2).askRequest(energyAmountAsk, unitPriceAsk);
+
+    await ethers.provider.send("evm_increaseTime", [900]);
+    await ethers.provider.send("evm_mine", []);
+    await energyTrade.connect(owner).rollBucket();
+
+    await expect(energyTrade.connect(addr2).markEnergySupplied(0, 0))
+      .to.emit(energyTrade, "EnergySupplied")
+      .withArgs(await addr2.getAddress(), await addr1.getAddress(), 0, 0, 1, 1);
+  });
+
+  it("should emit `EnergySupplied`", async function () {
+    const energyAmountBid = 1;
+    const unitPriceBid = 1;
+    const totalPrice = energyAmountBid * unitPriceBid;
+
+    const energyAmountAsk = 1;
+    const unitPriceAsk = 1;
+
+    await energyTrade
+      .connect(addr1)
+      .bidRequest(energyAmountBid, unitPriceBid, { value: totalPrice });
+    await energyTrade.connect(addr2).askRequest(energyAmountAsk, unitPriceAsk);
+
+    await ethers.provider.send("evm_increaseTime", [900]);
+    await ethers.provider.send("evm_mine", []);
+    await energyTrade.connect(owner).rollBucket();
+
+    await expect(energyTrade.connect(addr2).markEnergySupplied(0, 0))
+      .to.emit(energyTrade, "EnergySupplied")
+      .withArgs(await addr2.getAddress(), await addr1.getAddress(), 0, 0, 1, 1);
   });
 });

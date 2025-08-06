@@ -11,7 +11,10 @@
   "devDependencies": {
     "@chainlink/contracts": "^1.4.0",
     "@nomicfoundation/hardhat-toolbox": "^6.1.0",
+    "@typechain/hardhat": "^9.1.0",
     "hardhat": "^2.26.1",
-    "prettier-plugin-solidity": "^2.1.0"
+    "prettier-plugin-solidity": "^2.1.0",
+    "typechain": "^8.3.2",
+    "typescript": "^5.9.2"
   }
 }
