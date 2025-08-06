@@ -122,8 +122,10 @@ contract EnergyTrade {
     return matchedTrades[currBucketID - 1].clearingPrice;
   }
 
-  function getLastTradeBucket()
-    external
+  function _getTradeBucket(
+    uint256 _bucketIndex
+  )
+    internal
     view
     returns (
       uint256 clearingPrice,
@@ -134,30 +136,58 @@ contract EnergyTrade {
       bool[] memory supplieds
     )
   {
-    clearingPrice = matchedTrades[currBucketID - 1].clearingPrice;
-    tradeCount = matchedTrades[currBucketID - 1].confirmedTrades.length;
+    clearingPrice = matchedTrades[_bucketIndex].clearingPrice;
+    tradeCount = matchedTrades[_bucketIndex].confirmedTrades.length;
 
     energyAmounts = new uint256[](
-      matchedTrades[currBucketID - 1].confirmedTrades.length
+      matchedTrades[_bucketIndex].confirmedTrades.length
     );
     buyerAddrs = new address[](energyAmounts.length);
     sellerAddrs = new address[](energyAmounts.length);
     supplieds = new bool[](energyAmounts.length);
 
     for (uint256 i = 0; i < energyAmounts.length; i++) {
-      energyAmounts[i] = matchedTrades[currBucketID - 1]
+      energyAmounts[i] = matchedTrades[_bucketIndex]
         .confirmedTrades[i]
         .energyAmount;
-      buyerAddrs[i] = matchedTrades[currBucketID - 1]
-        .confirmedTrades[i]
-        .buyerAddr;
-      sellerAddrs[i] = matchedTrades[currBucketID - 1]
+      buyerAddrs[i] = matchedTrades[_bucketIndex].confirmedTrades[i].buyerAddr;
+      sellerAddrs[i] = matchedTrades[_bucketIndex]
         .confirmedTrades[i]
         .sellerAddr;
-      supplieds[i] = matchedTrades[currBucketID - 1]
-        .confirmedTrades[i]
-        .supplied;
+      supplieds[i] = matchedTrades[_bucketIndex].confirmedTrades[i].supplied;
     }
+  }
+
+  function getLastTradeBucket()
+    external
+    view
+    returns (
+      uint256,
+      uint256,
+      uint256[] memory,
+      address[] memory,
+      address[] memory,
+      bool[] memory
+    )
+  {
+    return _getTradeBucket(currBucketID - 1);
+  }
+
+  function getTradeBucket(
+    uint256 _bucketIndex
+  )
+    external
+    view
+    returns (
+      uint256,
+      uint256,
+      uint256[] memory,
+      address[] memory,
+      address[] memory,
+      bool[] memory
+    )
+  {
+    return _getTradeBucket(_bucketIndex);
   }
 
   function bidRequest(
