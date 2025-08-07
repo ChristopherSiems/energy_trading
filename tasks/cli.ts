@@ -18,7 +18,7 @@ function printEvents(
     })
     .filter((parsed): parsed is LogDescription => parsed !== null)
     .forEach((event, i) => {
-      console.log(`\nEvent ${i}: ${event.name}`);
+      console.log(`Event ${i}: ${event.name}`);
       event.fragment.inputs.forEach((input) => {
         const key = input.name;
         const value = event.args[key];
@@ -26,7 +26,7 @@ function printEvents(
       });
     });
 
-  console.log("\n");
+  console.log();
 }
 
 function printReversion(err: any): void {

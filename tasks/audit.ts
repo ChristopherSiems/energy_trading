@@ -31,7 +31,7 @@ task("audit", "Audit the trade history of the contract").setAction(async () => {
       console.log(`Buyer: ${buyerAddrs[j]}`);
       console.log(`Seller: ${sellerAddrs[j]}`);
       console.log(`Energy amount: ${energyAmounts[j]}`);
-      console.log(`Supplieds: ${supplieds[j]}`);
+      console.log(`Supplied: ${supplieds[j]}`);
     }
   }
 });
