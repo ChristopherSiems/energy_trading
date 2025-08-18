@@ -1,10 +1,10 @@
 import { expect } from "chai";
 import { ethers } from "hardhat";
-import { EnergyTrade, EnergyTrade__factory } from "../typechain-types";
+import { EnergyTradeV1, EnergyTradeV1__factory } from "../typechain-types";
 import { Signer } from "ethers";
 
-describe("EnergyTradeMatch", function () {
-  let energyTrade: EnergyTrade;
+describe("EnergyTradeV1", function () {
+  let energyTrade: EnergyTradeV1;
   let owner: Signer;
   let addr1: Signer;
   let addr2: Signer;
@@ -16,7 +16,7 @@ describe("EnergyTradeMatch", function () {
     [owner, addr1, addr2, addr3, addr4] = await ethers.getSigners();
 
     energyTrade = await (
-      await new EnergyTrade__factory(owner).deploy(bucketDuration)
+      await new EnergyTradeV1__factory(owner).deploy(bucketDuration)
     ).waitForDeployment();
   });
 
@@ -999,7 +999,7 @@ describe("EnergyTradeMatch", function () {
 
     await expect(energyTrade.connect(addr2).markEnergySupplied(0, 0))
       .to.emit(energyTrade, "EnergySupplied")
-      .withArgs(await addr2.getAddress(), await addr1.getAddress(), 0, 0, 1, 1);
+      .withArgs(await addr1.getAddress(), await addr2.getAddress(), 0, 0, 1, 1);
   });
 
   it("should emit `EnergySupplied`", async function () {
@@ -1021,6 +1021,6 @@ describe("EnergyTradeMatch", function () {
 
     await expect(energyTrade.connect(addr2).markEnergySupplied(0, 0))
       .to.emit(energyTrade, "EnergySupplied")
-      .withArgs(await addr2.getAddress(), await addr1.getAddress(), 0, 0, 1, 1);
+      .withArgs(await addr1.getAddress(), await addr2.getAddress(), 0, 0, 1, 1);
   });
 });

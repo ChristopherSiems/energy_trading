@@ -4,11 +4,11 @@ pragma solidity ^0.8.28;
 
 import "hardhat/console.sol";
 
-/// @title EnergyTrade
-/// @author ChristopherSiems
+/// @title EnergyTradeV1
+/// @author Christopher Siems
 /// @notice EnergyTrade implements a system for trading energy on the Ethereum blockchain
 /// @dev This contract is a toy prototype in its current state
-contract EnergyTrade {
+contract EnergyTradeV1 {
   /// @notice The address of the contract owner
   address public contractOwner;
 
@@ -633,11 +633,19 @@ contract EnergyTrade {
     );
 
     while (i < leftOffers.length && j < rightOffers.length) {
-      if (
-        (_unitPriceOrdering == Ordering.ASCENDING)
-          ? (leftOffers[i].unitPrice <= rightOffers[j].unitPrice)
-          : (leftOffers[i].unitPrice >= rightOffers[j].unitPrice)
-      ) result[k++] = leftOffers[i++];
+      bool takeLeft;
+      if (leftOffers[i].unitPrice == rightOffers[j].unitPrice) {
+        if (_energyAmountOrdering == Ordering.ASCENDING)
+          takeLeft = leftOffers[i].energyAmount <= rightOffers[j].energyAmount;
+        else
+          takeLeft = leftOffers[i].energyAmount >= rightOffers[j].energyAmount;
+      } else {
+        if (_unitPriceOrdering == Ordering.ASCENDING)
+          takeLeft = leftOffers[i].unitPrice < rightOffers[j].unitPrice;
+        else takeLeft = leftOffers[i].unitPrice > rightOffers[j].unitPrice;
+      }
+
+      if (takeLeft) result[k++] = leftOffers[i++];
       else result[k++] = rightOffers[j++];
     }
 
