@@ -1,12 +1,12 @@
 import { readFileSync } from "fs";
 import { task } from "hardhat/config";
 import { resolve } from "path";
-import { EnergyTrade, EnergyTrade__factory } from "../typechain-types";
+import { EnergyTradeV1, EnergyTradeV1__factory } from "../typechain-types";
 import type { LogDescription } from "ethers";
 
 function printEvents(
   receipt: { logs: any[] },
-  energyContract: EnergyTrade,
+  energyContract: EnergyTradeV1,
 ): void {
   receipt.logs
     .map((log) => {
@@ -40,7 +40,7 @@ function printReversion(err: any): void {
 
 task(
   "cli",
-  "Interact with the `EnergyTrade` contract running on a `localhost` node",
+  "Interact with the `EnergyTradeV1` contract running on a `localhost` node",
 )
   .addParam("account", "Index of the account to use")
   .addParam("cmd", "Command to perform")
@@ -56,7 +56,7 @@ task(
       readFileSync(resolve(__dirname, "../deployed.json"), "utf-8"),
     );
     const signers = await ethers.getSigners();
-    const energyContract = EnergyTrade__factory.connect(contractAddr);
+    const energyContract = EnergyTradeV1__factory.connect(contractAddr);
 
     switch (cmd) {
       case "bid": {

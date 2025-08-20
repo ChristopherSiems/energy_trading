@@ -1,11 +1,11 @@
 import { readFileSync } from "fs";
 import { task } from "hardhat/config";
 import { resolve } from "path";
-import { EnergyTrade__factory } from "../typechain-types";
+import { EnergyTradeV1__factory } from "../typechain-types";
 
 task("audit", "Audit the trade history of the contract").setAction(async () => {
   const { ethers } = require("hardhat");
-  const energyContract = EnergyTrade__factory.connect(
+  const energyContract = EnergyTradeV1__factory.connect(
     JSON.parse(readFileSync(resolve(__dirname, "../deployed.json"), "utf-8"))[
       "contractAddr"
     ],

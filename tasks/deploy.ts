@@ -4,16 +4,19 @@ import { resolve } from "path";
 
 task(
   "deploy",
-  "Deploys the EnergyTrade contract to the running Hardhat node",
+  "Deploys the EnergyTradeV1 contract to the running Hardhat node",
 ).setAction(async () => {
   const { ethers } = require("hardhat");
   const [owner] = await ethers.getSigners();
   const bucketDuration = 900;
-  const contractFactory = await ethers.getContractFactory("EnergyTrade", owner);
+  const contractFactory = await ethers.getContractFactory(
+    "EnergyTradeV1",
+    owner,
+  );
   const energyContract = await contractFactory.deploy(bucketDuration);
   await energyContract.waitForDeployment();
   const contractAddr = await energyContract.getAddress();
-  console.log("`EnergyTrade` deployed to: ", contractAddr);
+  console.log("`EnergyTradeV1` deployed to: ", contractAddr);
 
   const deployTx = energyContract.deploymentTransaction();
   if (!deployTx) throw new Error("Deployment transaction missing");
