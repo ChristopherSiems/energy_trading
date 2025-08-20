@@ -11,7 +11,7 @@ function offerSort(offers, unitPriceOrdering, energyAmountOrdering) {
   });
 }
 
-const tradeData = JSON.parse(process.argv[2]);
+const tradeData = JSON.parse(args[0]);
 const bidsSorted = offerSort(tradeData.bids, "DESCENDING", "ASCENDING");
 
 let currBid;
@@ -86,4 +86,9 @@ for (let bidIndex = 0; bidIndex < bidsSorted.length; bidIndex++) {
   askIndex += currAsksConsumedCount;
 }
 
-return { clearingPrice: currClearingPrice, matchedTrades: matchedTrades };
+return Functions.encodeString(
+  JSON.stringify({
+    clearingPrice: currClearingPrice,
+    matchedTrades: matchedTrades,
+  }),
+);
